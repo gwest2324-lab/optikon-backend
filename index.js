@@ -6,8 +6,10 @@ import OpenAI from "openai";
 const app = express();
 app.use(cors());
 
+// Use memory storage so we can read the file buffer
 const upload = multer({ storage: multer.memoryStorage() });
 
+// OpenAI client
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -32,7 +34,16 @@ app.post("/analyze-photo", upload.single("image"), async (req, res) => {
           content: `
 You are an expert photography judge.
 
-Return ONLY valid JSON in this exact format:
+You MUST return ONLY valid JSON and nothing else.
+Use a 0–100 scoring scale (NOT 0–10):
+
+- 0–39 = very weak
+- 40–59 = needs work
+- 60–74 = decent
+- 75–89 = strong
+- 90–100 = exceptional / portfolio-level
+
+Format:
 
 {
   "overallScore": number,
@@ -47,8 +58,6 @@ Return ONLY valid JSON in this exact format:
   "summary": string,
   "improvements": [string, string, string]
 }
-
-Do not include any extra text before or after the JSON.
           `,
         },
         {
@@ -62,7 +71,7 @@ Do not include any extra text before or after the JSON.
             },
             {
               type: "text",
-              text: "Analyze this photo realistically and respond ONLY with JSON.",
+              text: "Analyze this photo realistically and respond ONLY with JSON in the specified format.",
             },
           ],
         },
@@ -74,7 +83,7 @@ Do not include any extra text before or after the JSON.
 
     let raw;
     if (Array.isArray(messageContent)) {
-      // some SDK responses are structured as an array of parts
+      // Some SDK responses are structured as an array of parts
       raw = messageContent
         .map((part) => ("text" in part ? part.text : ""))
         .join("")
@@ -85,7 +94,36 @@ Do not include any extra text before or after the JSON.
 
     console.log("RAW AI RESPONSE:", raw);
 
-    const json = JSON.parse(raw);
+    let json = JSON.parse(raw);
+
+    // --- Normalize scores to 0–100 scale --- //
+    function normalizeScore(score) {
+      if (score == null || isNaN(score)) return 0;
+
+      const n = Number(score);
+
+      // If it looks like a 0–1 score, scale to 0–100
+      if (n > 0 && n <= 1) return Math.round(n * 100);
+
+      // If it looks like a 0–10 score, scale to 0–100
+      if (n > 1 && n <= 10) return Math.round(n * 10);
+
+      // Already 0–100, just clamp
+      if (n < 0) return 0;
+      if (n > 100) return 100;
+      return Math.round(n);
+    }
+
+    // Normalize overall
+    json.overallScore = normalizeScore(json.overallScore);
+
+    // Normalize each sub-score
+    if (json.scores) {
+      Object.keys(json.scores).forEach((key) => {
+        json.scores[key] = normalizeScore(json.scores[key]);
+      });
+    }
+
     return res.json(json);
   } catch (err) {
     console.error("AI ERROR:", err);
@@ -93,7 +131,7 @@ Do not include any extra text before or after the JSON.
   }
 });
 
-// 5) Start server
+// Start server
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`OPTIKON backend running on port ${port}`);
