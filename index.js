@@ -49,7 +49,7 @@ Scores must vary realistically based on the image.
         {
           role: "user",
           content: [
-            { type: "input_image", url: \`data:image/jpeg;base64,\${imageBase64}\` },
+            { type: "input_image", url: `data:image/jpeg;base64,${imageBase64}` },
             {
               type: "text",
               text: "Analyze this photo and respond ONLY with JSON. No explanations."
